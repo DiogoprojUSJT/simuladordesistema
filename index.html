@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Simulador de Atendimento</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: conversa do paciente (WhatsApp) à esquerda; painel interno com fluxo n8n, agenda, convênios e recepção à direita */
+:root{
+  --bg:#ECF1EF; --surface:#FFFFFF; --surface-2:#F3F7F6; --ink:#13201E; --muted:#556763; --line:#D2DBD8;
+  --accent:#0B7A63; --accent-ink:#FFFFFF; --accent-soft:#D8EFE6;
+  --reserve:#8F5400; --reserve-soft:#FAE8C6;
+  --danger:#B3261E; --danger-soft:#F9DEDC;
+  --human:#2A56A8; --human-soft:#DDE7F8;
+  --font-ui:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1514; --surface:#152120; --surface-2:#1A2928; --ink:#E4EEEC; --muted:#97ACA8; --line:#2A3B39;
+    --accent:#3DBE9E; --accent-ink:#06201A; --accent-soft:#16382F;
+    --reserve:#F0B35A; --reserve-soft:#3A2B0F;
+    --danger:#FF8A80; --danger-soft:#3D1A18;
+    --human:#8DB1F2; --human-soft:#1C2B47;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1514; --surface:#152120; --surface-2:#1A2928; --ink:#E4EEEC; --muted:#97ACA8; --line:#2A3B39;
+  --accent:#3DBE9E; --accent-ink:#06201A; --accent-soft:#16382F;
+  --reserve:#F0B35A; --reserve-soft:#3A2B0F;
+  --danger:#FF8A80; --danger-soft:#3D1A18;
+  --human:#8DB1F2; --human-soft:#1C2B47;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:14px;line-height:1.5;
+  padding-block:20px 32px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.app{max-width:1240px;margin:0 auto}
+.eyebrow{font:500 11px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+/* Cabeçalho */
+.top{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:flex-end;justify-content:space-between;margin-bottom:12px}
+h1{margin:2px 0 0;font-size:24px;font-weight:600;letter-spacing:-.015em;text-wrap:balance}
+.pipe{display:flex;flex-wrap:wrap;gap:6px 0;list-style:none;margin:0;padding:0}
+.pipe li{display:flex;flex-direction:column;padding:4px 12px;border:1px solid var(--line);background:var(--surface);position:relative;margin-right:18px;border-radius:6px}
+.pipe li:not(:last-child)::after{content:"→";position:absolute;right:-17px;top:50%;transform:translateY(-52%);color:var(--muted)}
+.pipe b{font-weight:600;font-size:13px}
+.pipe small{font:400 10.5px var(--font-mono);color:var(--muted)}
+.banner{margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--reserve);background:var(--surface);border-radius:6px;color:var(--muted);font-size:12.5px;max-width:none}
+.scn{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 12px;font-weight:500;font-size:13px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent}
+.spacer{flex:1}
+
+/* Grade principal */
+.grid{display:grid;grid-template-columns:minmax(300px,400px) minmax(0,1fr);gap:16px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+
+/* Conversa */
+.chat{height:700px;display:flex;flex-direction:column}
+.chat-head{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:600 12px var(--font-mono);flex:none}
+.who{font-weight:600;line-height:1.2}
+.state{font-size:12px;color:var(--accent);line-height:1.3}
+.state.paused{color:var(--human)}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:14px;background:var(--surface-2);display:flex;flex-direction:column;gap:8px}
+.row{display:flex;flex-direction:column;gap:6px;max-width:88%}
+.row.me{align-self:flex-end;align-items:flex-end}
+.row.bot,.row.human{align-self:flex-start}
+.row.sys{align-self:center;max-width:100%}
+.sysmsg{font:500 11px var(--font-mono);color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 10px;text-align:center}
+.bubble{padding:8px 12px 6px;border-radius:12px;border:1px solid var(--line);background:var(--surface);overflow-wrap:anywhere}
+.me .bubble{background:var(--accent-soft);border-color:transparent;border-bottom-right-radius:4px}
+.bot .bubble{border-bottom-left-radius:4px}
+.human .bubble{background:var(--human-soft);border-color:transparent;border-bottom-left-radius:4px}
+.bubble .lbl{font:500 10.5px var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--human);margin-bottom:2px}
+.bubble time{display:block;text-align:right;font:400 10px var(--font-mono);color:var(--muted);margin-top:2px}
+.typing{display:flex;gap:4px;padding:10px 12px}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);opacity:.5;animation:blink 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes blink{50%{opacity:1}}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chips .grp{flex-basis:100%;font:500 10.5px var(--font-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.chip{border:1px solid var(--accent);background:var(--surface);color:var(--accent);border-radius:999px;padding:4px 12px;font-weight:500;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;text-align:left}
+.chip:hover{background:var(--accent-soft)}
+.chip:disabled{opacity:.5;cursor:not-allowed}
+.chip .tag{font:500 10px var(--font-mono);background:var(--reserve-soft);color:var(--reserve);border-radius:4px;padding:0 5px}
+.callbox{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.callbtn{display:inline-block;align-self:flex-start;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;border-radius:8px;padding:6px 14px}
+.callnum{font:400 11.5px var(--font-mono);color:var(--muted);user-select:all}
+.suggest{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface)}
+.composer{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--surface)}
+.composer input,.hform input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:8px 12px}
+.composer input:disabled{opacity:.6}
+
+/* Painel interno */
+.right{display:flex;flex-direction:column;gap:10px;height:700px;min-width:0}
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px}
+.cell{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:0}
+.cell .v{font-weight:600;font-size:13px;overflow-wrap:anywhere}
+.cell .badge{display:inline-block;margin-top:2px;font:500 10.5px var(--font-mono);border-radius:4px;padding:0 6px;background:var(--accent-soft);color:var(--accent)}
+.cell .badge.reserve{background:var(--reserve-soft);color:var(--reserve)}
+.cell .badge.human{background:var(--human-soft);color:var(--human)}
+.sys-card{flex:1;min-height:0;display:flex;flex-direction:column}
+.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.tabs button{border:0;background:transparent;padding:10px 16px;font-weight:500;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;position:relative}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);background:var(--surface)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--danger);margin-left:6px}
+.panes{flex:1;min-height:0;overflow:auto}
+.pane{padding:14px}
+.pane.flush{padding:0}
+.empty{color:var(--muted);padding:24px 14px;text-align:center}
+.log{list-style:none;margin:0;padding:0}
+.ev{display:flex;flex-wrap:wrap;gap:4px 10px;padding:9px 14px;border-bottom:1px solid var(--line);align-items:baseline}
+.ev time{font:400 11px var(--font-mono);color:var(--muted);flex:none}
+.tag{font:500 10.5px var(--font-mono);letter-spacing:.03em;border-radius:4px;padding:1px 7px;flex:none;border:1px solid var(--line);color:var(--muted)}
+.t-grok{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.t-prodoctor{background:var(--human-soft);color:var(--human);border-color:transparent}
+.t-regra{background:var(--reserve-soft);color:var(--reserve);border-color:transparent}
+.t-guard{background:var(--danger-soft);color:var(--danger);border-color:transparent}
+.t-human{background:var(--ink);color:var(--bg);border-color:transparent}
+.ev .body{flex:1 1 220px;min-width:0}
+.ev .body p{margin:0}
+.ev pre{margin:4px 0 0;font:400 11.5px/1.5 var(--font-mono);color:var(--muted);background:var(--surface-2);border-radius:6px;padding:6px 8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.agbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.agbar select{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:6px 10px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);margin:0 0 12px;padding:0;list-style:none}
+.legend li{display:flex;gap:6px;align-items:center}
+.sw{width:12px;height:12px;border-radius:3px;border:1px solid var(--line);display:inline-block}
+.sw.free{border-color:var(--accent)}.sw.reserve{background:var(--reserve-soft);border-color:var(--reserve)}
+.sw.booked{background:var(--surface-2)}.sw.mine{background:var(--accent);border-color:var(--accent)}
+.sw.masked{border:1px dashed var(--reserve)}
+.period{margin:0 0 14px}
+.period h3{margin:0 0 6px;font:500 11px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px}
+.slot{border:1px solid var(--line);border-radius:8px;padding:5px 8px;display:flex;flex-direction:column;background:var(--surface)}
+.slot b{font:500 13px var(--font-mono)}
+.slot small{font-size:10.5px;color:var(--muted);line-height:1.3}
+.slot.free{border-color:var(--accent)}.slot.free small{color:var(--accent)}
+.slot.booked{background:var(--surface-2);color:var(--muted)}.slot.booked b{text-decoration:line-through}
+.slot.reserve{background:var(--reserve-soft);border-color:var(--reserve)}.slot.reserve small{color:var(--reserve)}
+.slot.reserve.masked{background:transparent;border-style:dashed;opacity:.8}
+.slot.mine{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.slot.mine small{color:var(--accent-ink)}
+.blist{margin:6px 0 0;padding:0;list-style:none;font:400 12px var(--font-mono)}
+.blist li{padding:4px 0;border-bottom:1px solid var(--line)}
+.scroll-x{overflow-x:auto}
+table.mx{border-collapse:collapse;width:100%;min-width:600px;font-size:12.5px}
+.mx th,.mx td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.mx thead th{font:500 10.5px var(--font-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.mx tbody th{font-weight:600;white-space:nowrap}
+.mx .c{font-weight:500;white-space:nowrap}
+.c.ok{color:var(--accent)}.c.no{color:var(--danger)}.c.q{color:var(--reserve)}
+.mx tr.on>th{background:var(--accent-soft)}
+.mx td.on{background:var(--accent-soft)}
+.mx td.hit{outline:2px solid var(--accent);outline-offset:-2px}
+.mx thead th.on{color:var(--accent)}
+.rules{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:6px;color:var(--muted);font-size:12.5px}
+.rules li{padding-left:12px;border-left:2px solid var(--line)}
+.hcard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--surface-2)}
+.hcard dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:6px 0 0}
+.hcard dt{color:var(--muted)}.hcard dd{margin:0;font-weight:500;overflow-wrap:anywhere}
+.thread{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:6px}
+.thread li{max-width:90%;padding:6px 10px;border-radius:10px;border:1px solid var(--line);overflow-wrap:anywhere}
+.thread li.pac{align-self:flex-start;background:var(--surface)}
+.thread li.sec{align-self:flex-end;background:var(--human-soft);border-color:transparent}
+.thread li small{display:block;font:400 10px var(--font-mono);color:var(--muted)}
+.hform{display:flex;gap:8px;margin-bottom:10px}
+
+@media (max-width:560px){
+  .pipe li{margin-right:0}
+  .pipe li:not(:last-child)::after{display:none}
+}
+@media (max-width:920px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .chat{height:560px}
+  .right{height:auto}
+  .sys-card{height:560px;flex:none}
+}
+@media (prefers-reduced-motion:reduce){.typing i{animation:none}}
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Clínica Exemplo · atendimento via WhatsApp</div>
+      <h1>Simulador de atendimento</h1>
+    </div>
+    <ol class="pipe" aria-label="Arquitetura">
+      <li><b>WhatsApp</b><small>Evolution API / Z-API</small></li>
+      <li><b>n8n</b><small>regras e orquestração</small></li>
+      <li><b>ProDoctor + Grok</b><small>agenda, cadastro, linguagem</small></li>
+    </ol>
+  </header>
+
+  <p class="banner">Simulação sem integração real. As respostas vêm de regras locais; no sistema de verdade, o Grok interpreta e redige, e o n8n aplica as regras de convênio e agenda. Nenhuma mensagem é enviada. Os CPFs, as datas de nascimento e a agenda são fictícios. A identificação exige dois dados que batem: CPF ou nome completo, mais a data de nascimento.</p>
+
+  <div class="scn" id="scn">
+    <span class="eyebrow">Cenários prontos</span>
+    <button class="btn" type="button" data-scn="antigo">Paciente antigo</button>
+    <button class="btn" type="button" data-scn="novo">Primeiro cliente</button>
+    <button class="btn" type="button" data-scn="naocobre">Convênio não cobre</button>
+    <button class="btn" type="button" data-scn="clinico">Pergunta clínica</button>
+    <button class="btn" type="button" data-scn="cpfdup">CPF duplicado</button>
+    <button class="btn" type="button" data-scn="duplicado">Cadastro em duplicidade</button>
+    <span class="spacer"></span>
+    <button class="btn ghost" type="button" id="stop" hidden>Parar cenário</button>
+    <button class="btn ghost" type="button" id="reset">Reiniciar</button>
+  </div>
+
+  <main class="grid">
+    <section class="card chat" aria-label="Conversa no WhatsApp">
+      <div class="chat-head">
+        <div class="avatar" aria-hidden="true">CE</div>
+        <div>
+          <div class="who">Clínica Exemplo</div>
+          <div class="state" id="botState">Assistente virtual · atendimento automático</div>
+        </div>
+      </div>
+      <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Mensagens"></div>
+      <div class="suggest" id="suggest">
+        <button class="chip" type="button">Oi, quero agendar uma consulta</button>
+        <button class="chip" type="button">Quais convênios vocês aceitam?</button>
+        <button class="chip" type="button">Preciso fazer coleta de sangue</button>
+      </div>
+      <form class="composer" id="composer" autocomplete="off">
+        <label class="sr" for="msg">Mensagem do paciente</label>
+        <input id="msg" type="text" placeholder="Escreva como se fosse o paciente">
+        <button class="btn primary" type="submit" id="send">Enviar</button>
+      </form>
+    </section>
+
+    <div class="right">
+      <div class="status" id="status" aria-label="Estado do atendimento"></div>
+      <section class="card sys-card" aria-label="Painel interno">
+        <div class="tabs" role="tablist" aria-label="Painel interno">
+          <button role="tab" type="button" aria-selected="true" aria-controls="p-fluxo" data-tab="fluxo">Fluxo n8n</button>
+          <button role="tab" type="button" aria-selected="false" aria-controls="p-agenda" data-tab="agenda">Agenda ProDoctor</button>
+          <button role="tab" type="button" aria-selected="false" aria-controls="p-conv" data-tab="conv">Convênios</button>
+          <button role="tab" type="button" aria-selected="false" aria-controls="p-humano" data-tab="humano">Recepção<span class="dot" id="dot" hidden></span></button>
+        </div>
+        <div class="panes">
+          <div class="pane flush" id="p-fluxo" role="tabpanel">
+            <div class="empty" id="logEmpty">Nenhuma execução ainda. Envie uma mensagem no WhatsApp ou rode um cenário pronto para ver cada etapa do fluxo.</div>
+            <ol class="log" id="log"></ol>
+          </div>
+
+          <div class="pane" id="p-agenda" role="tabpanel" hidden>
+            <div class="agbar">
+              <div>
+                <div class="eyebrow">Agenda de</div>
+                <div id="dayLabel" style="font-weight:600"></div>
+              </div>
+              <label>
+                <span class="sr">Serviço exibido</span>
+                <select id="svcSel"></select>
+              </label>
+            </div>
+            <ul class="legend">
+              <li><span class="sw free"></span>Livre</li>
+              <li><span class="sw reserve"></span>Livre, reservado a primeiros clientes</li>
+              <li><span class="sw masked"></span>Oculto para paciente antigo</li>
+              <li><span class="sw booked"></span>Ocupado</li>
+              <li><span class="sw mine"></span>Agendado nesta sessão</li>
+            </ul>
+            <div class="period"><h3>Manhã</h3><div class="slots" id="slotsAM"></div></div>
+            <div class="period"><h3>Tarde</h3><div class="slots" id="slotsPM"></div></div>
+            <div class="eyebrow" id="agCount"></div>
+            <div class="eyebrow" style="margin-top:14px">Agendamentos desta sessão</div>
+            <ul class="blist" id="bookings"></ul>
+          </div>
+
+          <div class="pane" id="p-conv" role="tabpanel" hidden>
+            <div class="scroll-x">
+              <table class="mx" id="mx"></table>
+            </div>
+            <ul class="rules">
+              <li>O fluxo valida convênio e especialidade antes de consultar horários na agenda.</li>
+              <li>Cobertura marcada como "a confirmar" segue o caminho de exceção: recepção ou atendimento particular.</li>
+              <li>Prevent Senior cobre somente Endocrinologia. SulAmérica cobre somente Cardiologia e Pneumologia, as demais a confirmar.</li>
+              <li>Amil, Endocrinologia, Pneumologia e exames: a planilha informa "diversas especialidades" sem listar. Marcado como a confirmar.</li>
+            </ul>
+          </div>
+
+          <div class="pane" id="p-humano" role="tabpanel" hidden>
+            <div class="empty" id="hEmpty">Nenhuma conversa em atendimento humano. Quando o paciente pedir uma atendente, a automação pausa e o chat aparece aqui.</div>
+            <div id="hActive" hidden>
+              <div class="hcard">
+                <div class="eyebrow">Resumo da automação</div>
+                <dl id="hSummary"></dl>
+              </div>
+              <ol class="thread" id="hThread"></ol>
+              <form class="hform" id="hForm" autocomplete="off">
+                <label class="sr" for="hMsg">Resposta da secretária</label>
+                <input id="hMsg" type="text" placeholder="Responder como secretária">
+                <button class="btn primary" type="submit">Responder</button>
+              </form>
+              <button class="btn" type="button" id="hResume">Devolver ao assistente</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $=function(s,r){return (r||document).querySelector(s);};
+var norm=function(s){return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');};
+var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+var T={typing:700,between:1700};
+var TEL_HREF='tel:+551100000000', TEL_SHOW='+55 11 0000-0000';
+
+var CONVENIOS=[
+  {id:'amil',label:'Amil',words:['amil']},
+  {id:'transmontano',label:'Transmontano',words:['transmontano']},
+  {id:'prevent',label:'Prevent Senior',words:['prevent']},
+  {id:'sulamerica',label:'SulAmérica',words:['sulamerica','sul america']},
+  {id:'economus',label:'Economus',words:['economus']},
+  {id:'particular',label:'Particular',words:['particular']}
+];
+var SERVICES=[
+  {id:'cardio',label:'Cardiologia',words:['cardio','coracao']},
+  {id:'reumato',label:'Reumatologia',words:['reumat']},
+  {id:'endo',label:'Endocrinologia',words:['endocr']},
+  {id:'pneumo',label:'Pneumologia',words:['pneumo']},
+  {id:'medicina',label:'Medicina (Geral/Trabalho)',words:['medicina','clinico geral','clinica geral','medico do trabalho']},
+  {id:'exames',label:'Exames e coleta de sangue',words:['exame','coleta','sangue','hemograma']}
+];
+var COVER={
+  amil:{cardio:'ok',reumato:'ok',endo:'?',pneumo:'?',medicina:'no',exames:'?'},
+  transmontano:{cardio:'no',reumato:'no',endo:'no',pneumo:'no',medicina:'no',exames:'?'},
+  prevent:{cardio:'no',reumato:'no',endo:'ok',pneumo:'no',medicina:'no',exames:'no'},
+  sulamerica:{cardio:'ok',reumato:'?',endo:'?',pneumo:'ok',medicina:'?',exames:'?'},
+  economus:{cardio:'no',reumato:'no',endo:'no',pneumo:'no',medicina:'no',exames:'ok'},
+  particular:{cardio:'ok',reumato:'ok',endo:'ok',pneumo:'ok',medicina:'ok',exames:'ok'}
+};
+var WHY={
+  amil:'não cobre consultas de Medicina (Geral/Trabalho)',
+  transmontano:'não cobre consultas médicas',
+  prevent:'cobre apenas consultas com Endocrinologia',
+  economus:'cobre apenas exames e coleta de sangue'
+};
+var NODE_LABEL={webhook:'WhatsApp',lgpd:'LGPD',grok:'Grok',prodoctor:'ProDoctor',regra:'Regra',guard:'Guardrail',human:'Transbordo'};
+var conv=function(id){return CONVENIOS.filter(function(c){return c.id===id;})[0];};
+var svc=function(id){return SERVICES.filter(function(s){return s.id===id;})[0];};
+
+/* Agenda: um dia útil seguinte, meia em meia hora. Os 4 últimos de cada período são reservados a primeiros clientes. */
+function nextBusinessDay(){var d=new Date();d.setDate(d.getDate()+1);while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);return d;}
+var DAY=nextBusinessDay();
+var DAY_LABEL=DAY.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'});
+function gen(h,m,n){var a=[];for(var i=0;i<n;i++){a.push(String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'));m+=30;if(m>=60){m-=60;h++;}}return a;}
+var MORNING=gen(8,0,10), AFTERNOON=gen(14,0,10);
+var RESERVED=new Set(MORNING.slice(-4).concat(AFTERNOON.slice(-4)));
+var BOOKED0={
+  cardio:['08:00','09:00','10:30','11:00','14:00','15:30','17:00'],
+  reumato:['08:30','09:30','10:00','14:30','16:00','18:00'],
+  endo:['08:00','08:30','09:00','10:30','14:00','14:30','17:30'],
+  pneumo:['09:00','10:00','12:00','15:00','15:30','16:30'],
+  medicina:['08:00','09:00','09:30','14:00','15:00'],
+  exames:['08:00','08:30','09:00','09:30','14:00','14:30']
+};
+/* Cadastros fictícios. Dois registros dividem o CPF 555.666.777-88 e dois têm o mesmo nome e nascimento (cadastro em duplicidade). */
+var PATIENTS0=[
+  {cpf:'12345678909',name:'Maria Souza Lima',birth:'14/03/1985',last:'12/08/2025'},
+  {cpf:'11122233344',name:'Carlos Eduardo Reis',birth:'02/09/1972',last:'03/02/2026'},
+  {cpf:'55566677788',name:'João Pereira Santos',birth:'10/05/1990',last:'20/01/2026'},
+  {cpf:'55566677788',name:'João Pedro Santos',birth:'22/11/2001',last:'15/06/2025'},
+  {cpf:'77788899900',name:'Marcos Vinicius Alves',birth:'05/05/1980',last:'10/10/2025'},
+  {cpf:'77788899911',name:'Marcos Vinicius Alves',birth:'05/05/1980',last:'02/04/2024'}
+];
+var SCEN={
+  antigo:['Oi, quero marcar uma consulta','123.456.789-09','14/03/1985','Amil','Cardiologia','Tem horário às 17:30?','09:30','Sim, confirmar'],
+  novo:['Quero agendar com cardiologista pela Amil','987.654.321-00, nasci em 08/07/1995','Sou primeiro cliente','Ana Paula Ferreira','17:30','Sim, confirmar'],
+  naocobre:['Tenho Prevent Senior e preciso de cardiologista','111.222.333-44 e 02/09/1972','Quero falar com um atendente'],
+  clinico:['Estou com muita dor de cabeça, qual remédio posso tomar?','Quero ligar para a clínica'],
+  cpfdup:['Quero agendar uma consulta','555.666.777-88 e 01/01/1990','Tentar novamente','555.666.777-88, 22/11/2001'],
+  duplicado:['Oi, preciso agendar','Marcos Vinicius Alves 05/05/1980']
+};
+
+var S, DB, AG, BOOKINGS, busy=false, playing=false, epoch=0, viewSvc='cardio', notes=[];
+
+function fresh(){
+  S={patient:null,idf:{},attempts:0,newMode:false,convenio:null,servico:null,slot:null,covFor:null,await:null,greeted:false,paused:false,done:false,pausedAt:null,reason:'',thread:[]};
+  DB=PATIENTS0.map(function(p){return {cpf:p.cpf,name:p.name,birth:p.birth,last:p.last};});
+  AG={};Object.keys(BOOKED0).forEach(function(k){AG[k]=new Set(BOOKED0[k]);});
+  BOOKINGS=[];notes=[];
+}
+
+/* ---------- utilidades de interface ---------- */
+var msgsEl=$('#msgs'), logEl=$('#log');
+function hhmm(){return new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
+function hhmmss(){return new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+function first(n){return n.split(' ')[0];}
+function mask(t){return t.replace(/\d{3}\.?\d{3}\.?\d{3}-?(\d{2})/g,'***.***.***-$1').replace(/\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{4}\b/g,'**/**/****');}
+function rich(el,text){
+  text.split('\n').forEach(function(line,i){
+    if(i)el.appendChild(document.createElement('br'));
+    line.split('**').forEach(function(part,j){
+      if(!part)return;
+      if(j%2){var s=document.createElement('strong');s.textContent=part;el.appendChild(s);}
+      else el.appendChild(document.createTextNode(part));
+    });
+  });
+}
+function scrollChat(){msgsEl.scrollTop=msgsEl.scrollHeight;}
+function clearChips(){Array.prototype.forEach.call(msgsEl.querySelectorAll('.chips'),function(c){c.remove();});}
+function chipsEl(chips){
+  var wrap=document.createElement('div');wrap.className='chips';
+  chips.forEach(function(c){
+    if(c.group){var g=document.createElement('span');g.className='grp';g.textContent=c.group;wrap.appendChild(g);return;}
+    var b=document.createElement('button');b.type='button';b.className='chip';
+    var t=document.createElement('span');t.textContent=c.label;b.appendChild(t);
+    if(c.tag){var tg=document.createElement('span');tg.className='tag';tg.textContent=c.tag;b.appendChild(tg);}
+    b.addEventListener('click',function(){send(c.send||c.label);});
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+function addMsg(who,text,opts){
+  opts=opts||{};
+  var row=document.createElement('div');row.className='row '+who;
+  if(who==='sys'){
+    var s=document.createElement('div');s.className='sysmsg';s.textContent=text;row.appendChild(s);
+  }else{
+    var b=document.createElement('div');b.className='bubble';
+    if(who==='human'){var l=document.createElement('div');l.className='lbl';l.textContent='Secretária';b.appendChild(l);}
+    var p=document.createElement('div');rich(p,text);b.appendChild(p);
+    if(opts.call){
+      var c=document.createElement('div');c.className='callbox';
+      var a=document.createElement('a');a.className='callbtn';a.href=TEL_HREF;a.textContent='Ligar para a central';
+      var n=document.createElement('span');n.className='callnum';n.textContent=TEL_SHOW+' (número de exemplo)';
+      c.appendChild(a);c.appendChild(n);b.appendChild(c);
+    }
+    var tm=document.createElement('time');tm.textContent=hhmm();b.appendChild(tm);
+    row.appendChild(b);
+    if(opts.chips&&opts.chips.length)row.appendChild(chipsEl(opts.chips));
+  }
+  msgsEl.appendChild(row);scrollChat();
+}
+function typing(){
+  var row=document.createElement('div');row.className='row bot';
+  var b=document.createElement('div');b.className='bubble typing';b.setAttribute('aria-label','Digitando');
+  b.innerHTML='<i></i><i></i><i></i>';row.appendChild(b);msgsEl.appendChild(row);scrollChat();return row;
+}
+function log(node,text,detail){
+  $('#logEmpty').hidden=true;
+  var li=document.createElement('li');li.className='ev';
+  var tm=document.createElement('time');tm.textContent=hhmmss();
+  var tag=document.createElement('span');tag.className='tag t-'+node;tag.textContent=NODE_LABEL[node]||node;
+  var body=document.createElement('div');body.className='body';
+  var p=document.createElement('p');p.textContent=text;body.appendChild(p);
+  if(detail){var pre=document.createElement('pre');pre.textContent=detail;body.appendChild(pre);}
+  li.appendChild(tm);li.appendChild(tag);li.appendChild(body);
+  logEl.appendChild(li);
+  var pane=$('#p-fluxo').parentNode;pane.scrollTop=pane.scrollHeight;
+}
+function note(t){notes.push(t);}
+function say(text,opts){
+  opts=opts||{};
+  var parts=[];
+  if(!S.greeted){parts.push('Olá! Sou o assistente virtual da Clínica Exemplo. Ajudo com agendamentos, convênios e dúvidas administrativas.');S.greeted=true;}
+  parts=parts.concat(notes);notes=[];
+  parts.push(text);
+  addMsg('bot',parts.join('\n'),opts);
+  if(!opts.nolog){
+    log('grok','Resposta redigida, somente escopo administrativo',
+      'contexto: '+JSON.stringify({etapa:S.await||'inicio',perfil:S.patient?S.patient.type:'nao_identificado',convenio:S.convenio,servico:S.servico})+'\nsem nome, CPF, nascimento ou dado clínico');
+  }
+}
+
+/* ---------- painel: estado, agenda, convênios, recepção ---------- */
+function renderStatus(){
+  var P=S.patient, el=$('#status');el.replaceChildren();
+  var cells=[
+    ['Paciente',P?P.name:(Object.keys(S.idf).length?'Verificando identidade':'Não identificado'),P?(P.type==='novo'?['Primeiro cliente','reserve']:['Paciente antigo','']):null],
+    ['Convênio',S.convenio?conv(S.convenio).label:'Não informado',null],
+    ['Serviço',S.servico?svc(S.servico).label:'Não informado',null],
+    ['Horário',S.slot?S.slot+' · '+DAY.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'Não escolhido',null],
+    ['Automação',S.paused?'Pausada':'Ativa',S.paused?['Atendimento humano','human']:null]
+  ];
+  cells.forEach(function(c){
+    var d=document.createElement('div');d.className='cell';
+    var l=document.createElement('div');l.className='eyebrow';l.textContent=c[0];
+    var v=document.createElement('div');v.className='v';v.textContent=c[1];
+    d.appendChild(l);d.appendChild(v);
+    if(c[2]){var b=document.createElement('span');b.className='badge '+c[2][1];b.textContent=c[2][0];d.appendChild(b);}
+    el.appendChild(d);
+  });
+}
+function slotCell(t){
+  var booked=AG[viewSvc].has(t);
+  var mine=BOOKINGS.some(function(b){return b.servico===viewSvc&&b.time===t;});
+  var res=RESERVED.has(t), old=S.patient&&S.patient.type==='antigo';
+  var cls='slot',lab='Livre',title='Livre';
+  if(mine){cls+=' mine';lab='Agendado';title='Agendado nesta sessão';}
+  else if(booked){cls+=' booked';lab='Ocupado';title='Ocupado';}
+  else if(res){cls+=' reserve'+(old?' masked':'');lab=old?'Oculto':'1º cliente';title=old?'Reservado a primeiros clientes. Oculto para este paciente.':'Reservado a primeiros clientes';}
+  else{cls+=' free';}
+  var d=document.createElement('div');d.className=cls;d.title=title;
+  var b=document.createElement('b');b.textContent=t;var s=document.createElement('small');s.textContent=lab;
+  d.appendChild(b);d.appendChild(s);return d;
+}
+function renderAgenda(){
+  $('#dayLabel').textContent=DAY_LABEL+' · '+svc(viewSvc).label;
+  $('#svcSel').value=viewSvc;
+  var am=$('#slotsAM'),pm=$('#slotsPM');am.replaceChildren();pm.replaceChildren();
+  MORNING.forEach(function(t){am.appendChild(slotCell(t));});
+  AFTERNOON.forEach(function(t){pm.appendChild(slotCell(t));});
+  var all=MORNING.concat(AFTERNOON).filter(function(t){return !AG[viewSvc].has(t);});
+  var reg=all.filter(function(t){return !RESERVED.has(t);}).length;
+  $('#agCount').textContent='Livres regulares: '+reg+' · Livres reservados: '+(all.length-reg);
+  var bl=$('#bookings');bl.replaceChildren();
+  if(!BOOKINGS.length){var li=document.createElement('li');li.textContent='Nenhum agendamento nesta sessão.';bl.appendChild(li);}
+  BOOKINGS.forEach(function(b){var li=document.createElement('li');li.textContent=b.time+' · '+svc(b.servico).label+' · '+conv(b.conv).label+' · '+b.name;bl.appendChild(li);});
+}
+function renderMatrix(){
+  var t=$('#mx');t.replaceChildren();
+  var thead=document.createElement('thead'),hr=document.createElement('tr');
+  var corner=document.createElement('th');corner.textContent='Convênio';hr.appendChild(corner);
+  SERVICES.forEach(function(s){var th=document.createElement('th');th.textContent=s.label;if(S.servico===s.id)th.className='on';hr.appendChild(th);});
+  thead.appendChild(hr);t.appendChild(thead);
+  var tb=document.createElement('tbody');
+  var sym={ok:['ok','✓ Cobre'],no:['no','× Não cobre'],'?':['q','? A confirmar']};
+  CONVENIOS.forEach(function(c){
+    var tr=document.createElement('tr');if(S.convenio===c.id)tr.className='on';
+    var th=document.createElement('th');th.scope='row';th.textContent=c.label;tr.appendChild(th);
+    SERVICES.forEach(function(s){
+      var td=document.createElement('td'),v=sym[COVER[c.id][s.id]];
+      var on=S.servico===s.id;if(on)td.className='on';
+      if(on&&S.convenio===c.id)td.className='on hit';
+      var sp=document.createElement('span');sp.className='c '+v[0];sp.textContent=v[1];td.appendChild(sp);tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+}
+function renderHuman(){
+  $('#hEmpty').hidden=S.paused;$('#hActive').hidden=!S.paused;
+  if(!S.paused)return;
+  var dl=$('#hSummary');dl.replaceChildren();
+  [['Paciente',S.patient?S.patient.name+' ('+(S.patient.type==='novo'?'primeiro cliente':'paciente antigo')+')':'Não identificado'],
+   ['Convênio',S.convenio?conv(S.convenio).label:'Não informado'],
+   ['Serviço',S.servico?svc(S.servico).label:'Não informado'],
+   ['Motivo',S.reason],['Pausado às',S.pausedAt]].forEach(function(r){
+    var dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=r[0];dd.textContent=r[1];dl.appendChild(dt);dl.appendChild(dd);
+  });
+  var th=$('#hThread');th.replaceChildren();
+  S.thread.forEach(function(m){
+    var li=document.createElement('li');li.className=m.who;
+    var sm=document.createElement('small');sm.textContent=(m.who==='pac'?'Paciente':'Secretária')+' · '+m.time;
+    li.appendChild(sm);li.appendChild(document.createTextNode(m.text));th.appendChild(li);
+  });
+}
+function setBotState(){
+  var el=$('#botState');
+  el.textContent=S.paused?'Atendimento humano · automação pausada':'Assistente virtual · atendimento automático';
+  el.className='state'+(S.paused?' paused':'');
+}
+function renderAll(){
+  if(S.servico)viewSvc=S.servico;
+  renderStatus();renderAgenda();renderMatrix();renderHuman();setBotState();
+}
+function selectTab(id){
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'),function(b){b.setAttribute('aria-selected',b.dataset.tab===id?'true':'false');});
+  Array.prototype.forEach.call(document.querySelectorAll('.pane'),function(p){p.hidden=p.id!=='p-'+id;});
+  if(id==='humano')$('#dot').hidden=true;
+}
+function activeTab(){var b=document.querySelector('.tabs button[aria-selected="true"]');return b?b.dataset.tab:'fluxo';}
+function setInputs(){
+  var lock=busy||playing;
+  $('#msg').disabled=lock;$('#send').disabled=lock;
+}
+
+/* ---------- entendimento da mensagem (no sistema real, papel do Grok) ---------- */
+function parse(text){
+  var t=norm(text),e={};
+  var m=text.match(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/);
+  if(m)e.cpf=m[0].replace(/\D/g,'');
+  var bd=text.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})\b/);
+  if(bd){var dd=+bd[1],mm=+bd[2],yy=+bd[3];if(dd>=1&&dd<=31&&mm>=1&&mm<=12&&yy>=1900&&yy<=2100)e.birth=String(dd).padStart(2,'0')+'/'+String(mm).padStart(2,'0')+'/'+yy;}
+  for(var i=0;i<CONVENIOS.length;i++){if(CONVENIOS[i].words.some(function(w){return new RegExp('\\b'+w+'\\b').test(t);})){e.convenio=CONVENIOS[i].id;break;}}
+  for(var j=0;j<SERVICES.length;j++){if(SERVICES[j].words.some(function(w){return t.indexOf(w)>-1;})){e.servico=SERVICES[j].id;break;}}
+  var tm=t.match(/\b(\d{1,2})(?:[:h](\d{2})?)\b/);
+  if(tm){var h=+tm[1],mi=tm[2]?+tm[2]:0;if(h<24&&mi<60)e.time=String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0');}
+  e.human=/atendente|humano|secretaria|recepcao|recepcionista|falar com (uma )?pessoa|continuar por texto/.test(t);
+  e.call=/\bligar\b|ligacao|telefone|\bligo\b|\bfone\b/.test(t);
+  e.clinical=/\b(dor|dores|sintomas?|remedios?|medicamentos?|diagnostico|febre|tomar|dosagem|doente|doenca|passando mal|tontura|enjoo)\b/.test(t);
+  e.faqConv=/quais convenios|convenios (voces |a clinica )?(aceitam|atendem|trabalham)|aceita(m)? (o )?convenio|trabalham com (quais )?convenios/.test(t);
+  e.yes=/\b(sim|confirm\w*|pode|isso|ok|certo|fechado)\b/.test(t);
+  e.no=/\b(nao|cancel\w*)\b|outro horario/.test(t);
+  e.resetConv=/trocar de convenio|outro convenio|mudar (de )?convenio/.test(t);
+  e.resetServ=/outro servico|trocar (o )?servico|outra especialidade/.test(t);
+  e.book=/agendar|marcar|agendamento|consulta/.test(t);
+  e.greeting=/\b(oi|ola|bom dia|boa tarde|boa noite)\b/.test(t);
+  e.thanks=/obrigad|valeu|agradec/.test(t);
+  e.newcli=/primeir[oa] (cliente|vez|consulta)|sou novo|sou nova|nunca (fui|vim|me consultei|consultei)|ainda nao sou paciente/.test(t);
+  e.retry=/tentar novamente|corrigir|digitar de novo/.test(t);
+  var rest=text.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g,' ').replace(/\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{4}\b/g,' ').replace(/(meu nome (é|e)|me chamo|nasci em|data de nascimento|nascimento|cpf|\be\b)/gi,' ').replace(/[,;:]/g,' ').replace(/\s+/g,' ').trim();
+  var nw=rest?rest.split(' ').length:0;
+  if(/^[A-Za-zÀ-ÿ' ]+$/.test(rest)&&nw>=2&&nw<=7&&!e.convenio&&!e.servico&&!e.human&&!e.call&&!e.clinical&&!e.faqConv&&!e.book&&!e.greeting&&!e.thanks&&!e.newcli&&!e.retry&&!e.yes&&!e.no&&!e.resetConv&&!e.resetServ)e.name=titleCase(rest);
+  return e;
+}
+function intentName(e){
+  if(e.human)return 'falar_com_atendente';if(e.call)return 'ligar_para_clinica';if(e.clinical)return 'pergunta_clinica';
+  if(e.faqConv)return 'duvida_convenios';if(e.cpf||e.birth||e.name)return 'identificacao';if(e.newcli)return 'primeira_vez';if(e.retry)return 'corrigir_dados';if(e.time)return 'escolha_de_horario';
+  if(e.convenio||e.servico||e.book)return 'agendamento';if(e.yes||e.no)return 'confirmacao';if(e.greeting)return 'saudacao';
+  return 'nao_identificada';
+}
+function logIntent(e){
+  var d={intencao:intentName(e)};
+  if(e.cpf)d.cpf='***.***.***-'+e.cpf.slice(-2);
+  if(e.birth)d.nascimento='**/**/****';
+  if(e.name)d.nome='[omitido]';
+  if(e.convenio)d.convenio=conv(e.convenio).label;
+  if(e.servico)d.servico=svc(e.servico).label;
+  if(e.time)d.horario=e.time;
+  log('grok','Intenção interpretada',JSON.stringify(d));
+}
+
+/* ---------- regras de negócio (no sistema real, nós do n8n) ---------- */
+function sameName(a,b){return norm(a).replace(/\s+/g,' ').trim()===norm(b).replace(/\s+/g,' ').trim();}
+/* Só há correspondência quando a data de nascimento bate junto com o CPF ou com o nome. */
+function findPatients(idf){
+  return DB.filter(function(p){
+    if(!idf.birth||p.birth!==idf.birth)return false;
+    return (idf.cpf&&p.cpf===idf.cpf)||(idf.name&&sameName(p.name,idf.name));
+  });
+}
+function identify(){
+  var idf=S.idf,how=[];
+  if(idf.cpf)how.push('CPF + nascimento');
+  if(idf.name)how.push('nome + nascimento');
+  var hits=findPatients(idf);
+  log('prodoctor','Busca de cadastro por '+how.join(' e '),'resultado: '+hits.length+' cadastro(s)\nao Grok vai só: verificado = '+(hits.length===1?'sim':'não'));
+  if(hits.length>1){
+    log('regra','Mais de um cadastro bate com os dados','o assistente não escolhe: transfere para a recepção revisar a duplicidade');
+    S.idf={};
+    handoff('cadastro em duplicidade no ProDoctor');
+    return false;
+  }
+  if(hits.length===1){
+    var h=hits[0];
+    S.patient={cpf:h.cpf,name:h.name,birth:h.birth,type:'antigo'};
+    S.attempts=0;
+    log('regra','Identificação confirmada com dois dados','perfil: paciente antigo · último atendimento '+h.last+'\njanelas "Primeiros Clientes" ocultas na oferta de horários');
+    note('Olá, **'+first(h.name)+'**! Encontrei seu cadastro.');
+    return true;
+  }
+  S.attempts++;
+  S.await='ident';
+  log('regra','Dados não conferem (tentativa '+S.attempts+' de 3)','resposta genérica: não informa qual dado falhou nem se o CPF existe');
+  if(S.attempts>=3){handoff('3 tentativas de identificação sem sucesso');return false;}
+  say('Não consegui localizar um cadastro com esses dados. Confira e envie de novo, ou, se esta for a sua primeira vez aqui, posso criar seu cadastro.',{chips:[{label:'Tentar novamente'},{label:'Sou primeiro cliente'},{label:'Falar com a recepção'}]});
+  return false;
+}
+function titleCase(n){
+  var small=['da','de','do','das','dos','e'];
+  return n.trim().replace(/\s+/g,' ').split(' ').map(function(w,i){var l=w.toLowerCase();return(i>0&&small.indexOf(l)>-1)?l:l.charAt(0).toUpperCase()+l.slice(1);}).join(' ');
+}
+function registerNew(){
+  var idf=S.idf;
+  var dups=findPatients(idf);
+  log('prodoctor','Conferência antes de criar cadastro','busca por CPF + nascimento e por nome + nascimento\nresultado: '+dups.length+' cadastro(s)');
+  if(dups.length){
+    log('regra','Cadastro já existe: criação bloqueada','evita duplicidade, transfere para a recepção');
+    S.idf={};S.newMode=false;
+    handoff('paciente diz ser novo, mas já existe cadastro com esses dados');
+    return false;
+  }
+  S.patient={cpf:idf.cpf,name:idf.name,birth:idf.birth,type:'novo',persisted:false};
+  S.newMode=false;S.await=null;
+  log('regra','Perfil definido: primeiro cliente','janelas "Primeiros Clientes" liberadas com prioridade');
+  note('Prazer, **'+first(idf.name)+'**! Seu cadastro será criado junto com o agendamento.');
+  return true;
+}
+function logCoverage(c){
+  var r={ok:'cobre, segue para a agenda',no:'não cobre, exceção: oferecer particular ou recepção','?':'cobertura a confirmar, oferecer recepção ou particular'}[c];
+  log('regra','Convênio × especialidade: '+r,conv(S.convenio).label+' × '+svc(S.servico).label);
+}
+function exception(c){
+  var cv=conv(S.convenio),sv=svc(S.servico);
+  S.await='exception';
+  var txt=c==='no'
+    ?'Infelizmente o convênio **'+cv.label+'** '+WHY[S.convenio]+', então não consigo agendar **'+sv.label+'** por ele. Posso oferecer atendimento **particular** ou transferir você para a recepção.'
+    :'Ainda não tenho a confirmação de que o convênio **'+cv.label+'** cobre **'+sv.label+'** na nossa clínica. Posso pedir para a recepção confirmar ou oferecer atendimento **particular**.';
+  say(txt,{chips:[{label:'Atendimento particular'},{label:'Falar com a recepção'},{label:'Escolher outro serviço'},{label:'Trocar de convênio'}]});
+}
+function offerSlots(){
+  S.await='slot';
+  var free=MORNING.concat(AFTERNOON).filter(function(t){return !AG[S.servico].has(t);});
+  var isOld=S.patient.type==='antigo';
+  var hidden=free.filter(function(t){return RESERVED.has(t);});
+  var vis=isOld?free.filter(function(t){return !RESERVED.has(t);}):free;
+  log('prodoctor','Horários livres consultados',svc(S.servico).label+' · '+DAY_LABEL+' · '+free.length+' livres');
+  log('regra','Primeiros Clientes aplicada ao perfil '+(isOld?'antigo':'novo'),
+    isOld?('ocultos: '+(hidden.length?hidden.join(', '):'nenhum livre nas janelas reservadas')+'\nofertados: '+vis.length)
+         :('janelas prioritárias liberadas: '+(hidden.length?hidden.join(', '):'nenhuma livre')+'\nofertados: '+vis.length));
+  if(!vis.length){
+    S.await=null;
+    say('Não tenho horários disponíveis para **'+svc(S.servico).label+'** em '+DAY_LABEL+'. Posso transferir você para a recepção.',{chips:[{label:'Falar com a recepção'},{label:'Ligar para a clínica'}]});
+    return;
+  }
+  var chips=[];
+  var m=vis.filter(function(t){return MORNING.indexOf(t)>-1;}),a=vis.filter(function(t){return AFTERNOON.indexOf(t)>-1;});
+  if(m.length){chips.push({group:'Manhã'});m.forEach(function(t){chips.push({label:t,tag:RESERVED.has(t)?'Prioritário':null});});}
+  if(a.length){chips.push({group:'Tarde'});a.forEach(function(t){chips.push({label:t,tag:RESERVED.has(t)?'Prioritário':null});});}
+  if(S.convenio==='particular'){chips.push({group:'Valores'});chips.push({label:'Ligar para negociar valores'});}
+  var txt='Tenho estes horários para **'+svc(S.servico).label+'** em **'+DAY_LABEL+'**:';
+  if(!isOld)txt+='\nComo é a sua primeira vez aqui, os horários marcados como **Prioritário** são reservados para você.';
+  say(txt,{chips:chips});
+}
+function pickSlot(time){
+  var all=MORNING.concat(AFTERNOON);
+  if(all.indexOf(time)<0){note('Não atendemos às **'+time+'** nesse dia.');S.slot=null;return 'retry';}
+  if(AG[S.servico].has(time)){note('O horário das **'+time+'** já foi preenchido.');S.slot=null;return 'retry';}
+  if(RESERVED.has(time)&&S.patient.type==='antigo'){
+    note('O horário das **'+time+'** não está disponível para agendamento.');
+    log('regra','Horário reservado pedido por paciente antigo: bloqueado','slot '+time+' pertence à janela "Primeiros Clientes" · perfil=antigo');
+    S.slot=null;return 'retry';
+  }
+  S.slot=time;
+  log('regra','Horário aceito','slot '+time+(RESERVED.has(time)?' (janela prioritária, perfil=novo)':' (janela regular)'));
+  return 'ok';
+}
+function askConfirm(){
+  S.await='confirm';
+  say('Posso confirmar este agendamento?\n**'+S.patient.name+'**\n'+svc(S.servico).label+' · '+conv(S.convenio).label+'\n'+DAY_LABEL+' às **'+S.slot+'**',{chips:[{label:'Sim, confirmar'},{label:'Escolher outro horário'}]});
+}
+function book(){
+  AG[S.servico].add(S.slot);
+  if(S.patient.type==='novo'&&!S.patient.persisted){
+    DB.push({cpf:S.patient.cpf,name:S.patient.name,birth:S.patient.birth,last:DAY.toLocaleDateString('pt-BR')});
+    S.patient.persisted=true;
+    log('prodoctor','Cadastro criado (primeiro cliente)','nome: '+S.patient.name+' · CPF ***.***.***-'+S.patient.cpf.slice(-2));
+  }
+  BOOKINGS.push({time:S.slot,servico:S.servico,conv:S.convenio,name:S.patient.name});
+  log('prodoctor','Agendamento gravado na agenda',svc(S.servico).label+' · '+DAY_LABEL+' '+S.slot+' · '+conv(S.convenio).label);
+  if(S.patient.type==='novo'){S.patient.type='antigo';log('regra','Perfil atualizado para paciente antigo','próximos agendamentos não verão as janelas reservadas');}
+  var txt='Agendamento confirmado!\n**'+svc(S.servico).label+'** · '+DAY_LABEL+' às **'+S.slot+'**.';
+  if(S.convenio==='particular')txt+='\nOs valores do atendimento particular são informados pela recepção.';
+  txt+='\nSe precisar alterar, é só me chamar por aqui.';
+  S.done=true;S.await=null;
+  renderAll();
+  say(txt,{chips:[{label:'Novo agendamento'},{label:'Falar com atendente'}]});
+}
+function sendCall(){
+  say('Claro! Toque no botão para ligar direto para a central da clínica. Se preferir continuar por texto, posso transferir para uma atendente.',
+    {call:true,nolog:true,chips:[{label:'Prefiro continuar por texto'},{label:'Voltar ao agendamento'}]});
+  log('human','Link de ligação enviado ao paciente','tel:+55XXYYYYYYYYY\nabre o discador do celular direto na central (telefonia física)');
+}
+function guardrail(){
+  log('guard','Pergunta clínica detectada','instrução ao Grok: recusar diagnóstico, sintomas e medicação; oferecer agendamento ou telefone');
+  say('Não posso orientar sobre sintomas, remédios ou diagnósticos. Isso é com um profissional de saúde. Posso ajudar a agendar uma consulta ou passar o telefone da clínica. Se for uma emergência, ligue 192 (SAMU).',
+    {chips:[{label:'Quero agendar uma consulta'},{label:'Ligar para a clínica'},{label:'Falar com atendente'}]});
+}
+function handoff(reason){
+  S.paused=true;S.pausedAt=hhmm();S.reason=reason;S.await=null;S.thread=[];
+  say('Certo! Vou transferir sua conversa para a nossa recepção. Uma atendente continua por aqui em instantes.',{nolog:true});
+  addMsg('sys','Automação pausada · chat transferido para a recepção');
+  log('human','Automação pausada para este chat','motivo: '+reason+'\nresumo enviado ao painel das secretárias');
+  renderAll();selectTab('humano');
+}
+function forwardToHuman(t){
+  S.thread.push({who:'pac',text:t,time:hhmm()});
+  log('human','Mensagem encaminhada às secretárias, sem resposta automática');
+  renderHuman();
+  if(activeTab()!=='humano')$('#dot').hidden=false;
+}
+function humanReply(t){
+  S.thread.push({who:'sec',text:t,time:hhmm()});
+  addMsg('human',t);renderHuman();
+  log('human','Secretária respondeu pelo painel');
+}
+function resume(){
+  S.paused=false;S.thread=[];
+  log('human','Automação retomada para este chat');
+  addMsg('sys','Automação retomada');
+  note('Voltei por aqui! Vamos continuar de onde paramos.');
+  renderAll();advance();
+}
+
+function advance(){
+  var P=S.patient;
+  if(S.paused)return;
+  if(!P){
+    S.await='ident';
+    var idf=S.idf,miss=[];
+    if(S.newMode){
+      if(!idf.name)miss.push('seu **nome completo**');
+      if(!idf.cpf)miss.push('seu **CPF**');
+      if(!idf.birth)miss.push('sua **data de nascimento** (dd/mm/aaaa)');
+      say('Vamos criar seu cadastro. Preciso de '+miss.join(', ')+'.');
+      return;
+    }
+    if(idf.cpf&&!idf.birth){say('Recebi o CPF. Para confirmar que é você, me informe também sua **data de nascimento** (dd/mm/aaaa).');return;}
+    if(idf.name&&!idf.birth){say('Prazer! Para confirmar que é você, me informe também sua **data de nascimento** (dd/mm/aaaa).');return;}
+    if(idf.birth&&!idf.cpf&&!idf.name){say('Recebi a data de nascimento. Agora me informe seu **CPF** ou **nome completo**.');return;}
+    say('Para localizar seu cadastro, me informe seu **CPF** ou **nome completo**, mais a **data de nascimento** (dd/mm/aaaa). Preciso de dois dados que batem, porque o CPF sozinho não basta.',{chips:[
+      {label:'Exemplo: paciente antigo',send:'123.456.789-09, 14/03/1985'},
+      {label:'Exemplo: primeiro cliente',send:'987.654.321-00, 08/07/1995'}]});
+    return;
+  }
+  if(S.done){
+    say('Seu agendamento está confirmado. Posso ajudar com mais alguma coisa?',{chips:[{label:'Novo agendamento'},{label:'Falar com atendente'},{label:'Ligar para a clínica'}]});
+    return;
+  }
+  if(!S.convenio){
+    S.await='convenio';
+    say('Qual é o seu **convênio**? Se preferir, pode ser atendimento **particular**.',{chips:CONVENIOS.map(function(c){return {label:c.label};})});
+    return;
+  }
+  if(!S.servico){
+    S.await='servico';
+    say('O que você precisa agendar?',{chips:SERVICES.map(function(s){return {label:s.label};})});
+    return;
+  }
+  var key=S.convenio+'|'+S.servico;
+  if(S.covFor!==key){
+    var c=COVER[S.convenio][S.servico];
+    logCoverage(c);
+    if(c!=='ok'){exception(c);return;}
+    S.covFor=key;
+  }
+  if(!S.slot){offerSlots();return;}
+  askConfirm();
+}
+
+function respond(text,e){
+  if(e.human)return handoff('pedido do paciente');
+  if(e.call)return sendCall();
+  if(e.clinical)return guardrail();
+  var understood=false;
+  if(e.faqConv){note('Atendemos **Amil, Transmontano, Prevent Senior, SulAmérica e Economus**, além de atendimento particular. A cobertura varia por especialidade: me diga seu convênio e o que você precisa que eu confirmo.');understood=true;}
+  if(e.thanks){note('De nada!');understood=true;}
+  {
+    if(!S.patient){
+      if(e.retry){S.idf={};S.newMode=false;understood=true;}
+      if(e.newcli){S.newMode=true;understood=true;}
+      if(e.cpf){S.idf.cpf=e.cpf;understood=true;}
+      if(e.birth){S.idf.birth=e.birth;understood=true;}
+      if(e.name){S.idf.name=e.name;understood=true;}
+    }
+    if(S.done&&(e.book||e.servico||e.convenio)){S.done=false;S.slot=null;S.covFor=null;if(!e.servico)S.servico=null;}
+    if(e.resetConv){S.convenio=null;S.slot=null;S.covFor=null;understood=true;}
+    if(e.resetServ){S.servico=null;S.slot=null;S.covFor=null;understood=true;}
+    if(!S.patient&&S.idf.birth&&(S.idf.cpf||S.idf.name)&&(e.cpf||e.birth||e.name)){
+      understood=true;
+      if(S.newMode){if(S.idf.name&&S.idf.cpf&&S.idf.birth&&!registerNew())return;}
+      else if(!identify())return;
+    }
+    if(e.convenio&&!e.resetConv){
+      if(S.convenio!==e.convenio){
+        S.convenio=e.convenio;S.slot=null;S.covFor=null;
+        if(e.convenio==='particular')note('Os valores do atendimento particular são informados pela recepção. Se quiser, te passo o telefone.');
+      }
+      understood=true;
+    }
+    if(e.servico&&!e.resetServ){
+      if(S.servico!==e.servico){S.servico=e.servico;S.slot=null;S.covFor=null;}
+      understood=true;
+    }
+    if(e.time&&(S.await==='slot'||S.await==='confirm')&&S.patient&&S.servico&&S.covFor){
+      understood=true;
+      if(pickSlot(e.time)==='retry'){renderAll();return offerSlots();}
+    }else if(S.await==='confirm'){
+      if(e.yes&&!e.no){renderAll();return book();}
+      if(e.no){understood=true;S.slot=null;}
+    }
+    if(!understood&&!e.book&&!e.greeting&&!e.thanks)note('Desculpe, não entendi bem.');
+  }
+  renderAll();
+  advance();
+  renderAll();
+}
+
+/* ---------- entrada do paciente ---------- */
+async function onUser(text){
+  var t=text.trim();if(!t)return;
+  var my=epoch;
+  busy=true;setInputs();
+  clearChips();$('#suggest').hidden=true;
+  addMsg('me',t);
+  log('webhook','Mensagem recebida','texto: "'+mask(t).slice(0,90)+'"');
+  if(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/.test(t)||/\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{4}\b/.test(t))log('lgpd','CPF e nascimento conferidos no n8n, fora do Grok','o modelo recebe "***.***.***-XX" e "**/**/****"; só fica sabendo se a identidade foi verificada: sim ou não');
+  if(S.paused){forwardToHuman(t);busy=false;setInputs();return;}
+  var e=parse(t);logIntent(e);
+  var tp=typing();
+  await sleep(T.typing);
+  tp.remove();
+  if(my!==epoch)return;
+  try{respond(t,e);}catch(err){console.error(err);}
+  busy=false;setInputs();
+}
+function send(text){if(busy||playing)return;onUser(text);}
+
+/* ---------- cenários e reinício ---------- */
+function reset(){
+  epoch++;playing=false;busy=false;
+  fresh();
+  msgsEl.replaceChildren();logEl.replaceChildren();$('#logEmpty').hidden=false;
+  $('#stop').hidden=true;$('#suggest').hidden=false;$('#dot').hidden=true;
+  addMsg('sys','Hoje · conversa com o número oficial da clínica');
+  viewSvc='cardio';
+  renderAll();setInputs();
+}
+async function play(key){
+  reset();
+  var my=epoch;playing=true;setInputs();$('#stop').hidden=false;
+  selectTab('fluxo');
+  var steps=SCEN[key];
+  for(var i=0;i<steps.length;i++){
+    await sleep(T.between);if(my!==epoch)return;
+    await onUser(steps[i]);if(my!==epoch)return;
+  }
+  playing=false;setInputs();$('#stop').hidden=true;
+}
+
+/* ---------- ligações de eventos ---------- */
+$('#composer').addEventListener('submit',function(ev){ev.preventDefault();var i=$('#msg');var v=i.value;i.value='';send(v);});
+Array.prototype.forEach.call(document.querySelectorAll('#suggest .chip'),function(b){b.addEventListener('click',function(){send(b.textContent);});});
+Array.prototype.forEach.call(document.querySelectorAll('[data-scn]'),function(b){b.addEventListener('click',function(){play(b.dataset.scn);});});
+Array.prototype.forEach.call(document.querySelectorAll('.tabs button'),function(b){b.addEventListener('click',function(){selectTab(b.dataset.tab);});});
+$('#reset').addEventListener('click',reset);
+$('#stop').addEventListener('click',function(){epoch++;playing=false;busy=false;$('#stop').hidden=true;setInputs();Array.prototype.forEach.call(document.querySelectorAll('.typing'),function(x){x.parentNode.remove();});});
+$('#hForm').addEventListener('submit',function(ev){ev.preventDefault();var i=$('#hMsg');var v=i.value.trim();i.value='';if(v&&S.paused)humanReply(v);});
+$('#hResume').addEventListener('click',resume);
+var sel=$('#svcSel');
+SERVICES.forEach(function(s){var o=document.createElement('option');o.value=s.id;o.textContent=s.label;sel.appendChild(o);});
+sel.addEventListener('change',function(){viewSvc=sel.value;renderAgenda();});
+
+reset();
+})();
+</script>
+</body>
+</html>
