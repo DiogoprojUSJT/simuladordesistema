@@ -1,0 +1,54 @@
+# Segredos e credenciais (chaves do ProDoctor, Grok, WhatsApp, n8n)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials*.json
+
+# Dados de pacientes e exportações (LGPD)
+*.csv
+*.xlsx
+*.sql
+dumps/
+exports/
+
+# Sessão do WhatsApp Web e dados do gateway
+auth_info*/
+.wwebjs_auth/
+.wwebjs_cache/
+sessions/
+evolution-data/
+
+# n8n local
+.n8n/
+n8n-data/
+
+# Dependências e build, caso o projeto cresça
+node_modules/
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# Testes e capturas locais
+playwright-report/
+test-results/
+screenshots/
+*.png.tmp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*~
